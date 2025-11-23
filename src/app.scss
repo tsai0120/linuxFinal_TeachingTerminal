@@ -3,3 +3,14 @@
 p {
     font-weight: bold;
 }
+
+// Ensure page can scroll
+html, body {
+    overflow-y: auto !important;
+    height: auto !important;
+}
+
+#app {
+    min-height: 100vh;
+    overflow-y: auto;
+}

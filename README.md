@@ -1,200 +1,199 @@
-# Cockpit Starter Kit
+# Cockpit 指令提示終端機插件
 
-Scaffolding for a [Cockpit](https://cockpit-project.org/) module.
+本專案基於 Cockpit Starter Kit（React + TypeScript + PatternFly）架構，實現了一個教學終端機插件，旨在提供一個安全的介面，讓使用者可以執行 Linux 指令，並查看該指令的危險度、詳細說明和範例。
 
-# Development dependencies
+## 專案特色
 
-On Debian/Ubuntu:
+- 🎯 **初學者友善**：提供常用指令按鈕，點擊即可填入指令
+- 📚 **詳細說明**：每個指令都有表格格式的詳細用法說明
+- ⚠️ **危險度提示**：清楚標示指令的危險等級（低/中/高）
+- 🔍 **分類瀏覽**：指令按功能分類（查詢/瀏覽、檔案操作、權限設定、系統操作、網路操作）
+- 💡 **即時提示**：滑鼠懸停即可查看指令說明
+- ⌨️ **命令歷史**：支援上下鍵瀏覽歷史指令
+- 🔄 **Tab 補齊**：支援指令自動補齊功能
 
-    sudo apt install gettext nodejs npm make
+## 專案結構
 
-On Fedora:
+| 檔案/目錄 | 說明 |
+|---------|------|
+| `src/app.tsx` | **核心應用程式**：包含所有 React 組件、狀態管理、指令資料庫、PatternFly 佈局和 cockpit.spawn 執行邏輯 |
+| `src/index.html` | HTML 骨架，負責載入 cockpit.js 和編譯後的 index.js |
+| `src/index.tsx` | React 啟動器，將 Application 組件注入 HTML 容器 |
+| `src/manifest.json` | Cockpit 插件定義檔，定義插件 ID 和入口點 |
+| `manifest.json` | 根目錄的 manifest.json（編譯時需要） |
+| `dist/` | 編譯後的輸出目錄（自動生成，已加入 .gitignore） |
 
-    sudo dnf install gettext nodejs npm make
+## 🚀 快速開始
 
+### 前提條件
 
-# Getting and building the source
+請確保您的系統已安裝以下工具：
 
-These commands check out the source and build it into the `dist/` directory:
+- **Node.js (v18+)** 與 **npm**
+- **git**
+- **make**
 
+### 安裝步驟
+
+#### 1. 克隆專案
+
+```bash
+git clone https://github.com/tsai0120/linuxFinal_TeachingTerminal.git
+cd linuxFinal_TeachingTerminal
 ```
-git clone https://github.com/cockpit-project/starter-kit.git
-cd starter-kit
+
+#### 2. 安裝相依套件
+
+```bash
+npm install
+```
+
+#### 3. 編譯專案
+
+**重要：** 在執行 `make` 之前，必須先將 `src/manifest.json` 複製到根目錄：
+
+```bash
+cp src/manifest.json ./
 make
 ```
 
-# Installing
+這會將 `src/` 中的 React/TypeScript 程式碼編譯成瀏覽器可讀的單一 JavaScript 檔案，並輸出到 `dist/` 目錄。
 
-`make install` compiles and installs the package in `/usr/local/share/cockpit/`. The
-convenience targets `srpm` and `rpm` build the source and binary rpms,
-respectively. Both of these make use of the `dist` target, which is used
-to generate the distribution tarball. In `production` mode, source files are
-automatically minified and compressed. Set `NODE_ENV=production` if you want to
-duplicate this behavior.
+#### 4. 部署到 Cockpit
 
-For development, you usually want to run your module straight out of the git
-tree. To do that, run `make devel-install`, which links your checkout to the
-location were cockpit-bridge looks for packages. If you prefer to do
-this manually:
+建立 Cockpit 插件目錄並建立符號連結：
 
-```
+```bash
 mkdir -p ~/.local/share/cockpit
-ln -s `pwd`/dist ~/.local/share/cockpit/starter-kit
+ln -s $(pwd)/dist ~/.local/share/cockpit/teach-terminal
 ```
 
-After changing the code and running `make` again, reload the Cockpit page in
-your browser.
+#### 5. 重新啟動服務並測試
 
-You can also use
-[watch mode](https://esbuild.github.io/api/#watch) to
-automatically update the bundle on every code change with
+```bash
+# 清除快取
+sudo rm -rf /var/cache/cockpit/*
 
-    ./build.js -w
-
-or
-
-    make watch
-
-When developing against a virtual machine, watch mode can also automatically upload
-the code changes by setting the `RSYNC` environment variable to
-the remote hostname.
-
-    RSYNC=c make watch
-
-When developing against a remote host as a normal user, `RSYNC_DEVEL` can be
-set to upload code changes to `~/.local/share/cockpit/` instead of
-`/usr/local`.
-
-    RSYNC_DEVEL=example.com make watch
-
-To "uninstall" the locally installed version, run `make devel-uninstall`, or
-remove manually the symlink:
-
-    rm ~/.local/share/cockpit/starter-kit
-
-# Running eslint
-
-Cockpit Starter Kit uses [ESLint](https://eslint.org/) to automatically check
-JavaScript/TypeScript code style in `.js[x]` and `.ts[x]` files.
-
-eslint is executed as part of `test/static-code`, aka. `make codecheck`.
-
-For developer convenience, the ESLint can be started explicitly by:
-
-    npm run eslint
-
-Violations of some rules can be fixed automatically by:
-
-    npm run eslint:fix
-
-Rules configuration can be found in the `.eslintrc.json` file.
-
-## Running stylelint
-
-Cockpit uses [Stylelint](https://stylelint.io/) to automatically check CSS code
-style in `.css` and `scss` files.
-
-styleint is executed as part of `test/static-code`, aka. `make codecheck`.
-
-For developer convenience, the Stylelint can be started explicitly by:
-
-    npm run stylelint
-
-Violations of some rules can be fixed automatically by:
-
-    npm run stylelint:fix
-
-Rules configuration can be found in the `.stylelintrc.json` file.
-
-# Running tests locally
-
-Run `make check` to build an RPM, install it into a standard Cockpit test VM
-(centos-9-stream by default), and run the test/check-application integration test on
-it. This uses Cockpit's Chrome DevTools Protocol based browser tests, through a
-Python API abstraction. Note that this API is not guaranteed to be stable, so
-if you run into failures and don't want to adjust tests, consider checking out
-Cockpit's test/common from a tag instead of main (see the `test/common`
-target in `Makefile`).
-
-After the test VM is prepared, you can manually run the test without rebuilding
-the VM, possibly with extra options for tracing and halting on test failures
-(for interactive debugging):
-
-    TEST_OS=centos-9-stream test/check-application -tvs
-
-It is possible to setup the test environment without running the tests:
-
-    TEST_OS=centos-9-stream make prepare-check
-
-You can also run the test against a different Cockpit image, for example:
-
-    TEST_OS=fedora-40 make check
-
-# Running tests in CI
-
-These tests can be run in [Cirrus CI](https://cirrus-ci.org/), on their free
-[Linux Containers](https://cirrus-ci.org/guide/linux/) environment which
-explicitly supports `/dev/kvm`. Please see [Quick
-Start](https://cirrus-ci.org/guide/quick-start/) how to set up Cirrus CI for
-your project after forking from starter-kit.
-
-The included [.cirrus.yml](./.cirrus.yml) runs the integration tests for two
-operating systems (Fedora and CentOS 8). Note that if/once your project grows
-bigger, or gets frequent changes, you may need to move to a paid account, or
-different infrastructure with more capacity.
-
-Tests also run in [Packit](https://packit.dev/) for all currently supported
-Fedora releases; see the [packit.yaml](./packit.yaml) control file. You need to
-[enable Packit-as-a-service](https://packit.dev/docs/packit-service/) in your GitHub project to use this.
-To run the tests in the exact same way for upstream pull requests and for
-[Fedora package update gating](https://docs.fedoraproject.org/en-US/ci/), the
-tests are wrapped in the [FMF metadata format](https://github.com/teemtee/fmf)
-for using with the [tmt test management tool](https://docs.fedoraproject.org/en-US/ci/tmt/).
-Note that Packit tests can *not* run their own virtual machine images, thus
-they only run [@nondestructive tests](https://github.com/cockpit-project/cockpit/blob/main/test/common/testlib.py).
-
-# Customizing
-
-After cloning the Starter Kit you should rename the files, package names, and
-labels to your own project's name. Use these commands to find out what to
-change:
-
-    find -iname '*starter*'
-    git grep -i starter
-
-# Automated release
-
-Once your cloned project is ready for a release, you should consider automating
-that. The intention is that the only manual step for releasing a project is to create
-a signed tag for the version number, which includes a summary of the noteworthy
-changes:
-
-```
-123
-
-- this new feature
-- fix bug #123
+# 重新啟動 Cockpit 服務
+sudo systemctl restart cockpit cockpit.socket
 ```
 
-Pushing the release tag triggers the [release.yml](.github/workflows/release.yml.disabled)
-[GitHub action](https://github.com/features/actions) workflow. This creates the
-official release tarball and publishes as upstream release to GitHub. The
-workflow is disabled by default -- to use it, edit the file as per the comment
-at the top, and rename it to just `*.yml`.
+然後在瀏覽器中登入 Cockpit 介面，在左側選單中找到 **"指令提示終端機"** 項目。
 
-The Fedora and COPR releases are done with [Packit](https://packit.dev/),
-see the [packit.yaml](./packit.yaml) control file.
+## 💡 開發指南
 
-# Automated maintenance
+### 新增指令
 
-It is important to keep your [NPM modules](./package.json) up to date, to keep
-up with security updates and bug fixes. This happens with
-[dependabot](https://github.com/dependabot),
-see [configuration file](.github/dependabot.yml).
+若要新增指令，請編輯 `src/app.tsx` 中的 `commandInfo` 物件：
 
-# Further reading
+```typescript
+const commandInfo: Record<string, {
+  template: string;
+  text: string;
+  detail: string | React.ReactNode;
+  danger: "low" | "medium" | "high";
+  category: string;
+}> = {
+  your_command: {
+    template: "your_command --option",
+    text: "your_command：指令說明。",
+    detail: (
+      <div>
+        <p><strong>基本用法：</strong></p>
+        <table style={{ /* 表格樣式 */ }}>
+          {/* 表格內容 */}
+        </table>
+      </div>
+    ),
+    danger: "low",
+    category: "查詢/瀏覽 (Query)",
+  },
+};
+```
 
- * The [Starter Kit announcement](https://cockpit-project.org/blog/cockpit-starter-kit.html)
-   blog post explains the rationale for this project.
- * [Cockpit Deployment and Developer documentation](https://cockpit-project.org/guide/latest/)
- * [Make your project easily discoverable](https://cockpit-project.org/blog/making-a-cockpit-application.html)
+### 開發模式
+
+使用 watch 模式可以自動重新編譯：
+
+```bash
+make watch
+```
+
+或使用 build.js：
+
+```bash
+./build.js -w
+```
+
+修改程式碼後，重新載入瀏覽器頁面即可看到變更。
+
+### 程式碼檢查
+
+執行 ESLint 檢查：
+
+```bash
+npm run eslint
+```
+
+自動修復可修復的問題：
+
+```bash
+npm run eslint:fix
+```
+
+## 📋 功能說明
+
+### 指令分類
+
+- **查詢/瀏覽 (Query)**：`ls`, `pwd`, `cat`, `find`, `grep`, `head`, `tail`
+- **檔案操作 (File Operations)**：`cp`, `mv`, `mkdir`, `rmdir`, `touch`
+- **權限設定 (Permission)**：`chmod`, `chown`, `umask`
+- **系統操作 (System Control)**：`rm`, `systemctl`, `ps`, `kill`, `top`
+- **網路操作 (Network)**：`ping`, `curl`, `wget`, `netstat`
+
+### 使用技巧
+
+- **指令按鈕**：點擊按鈕會將指令填入輸入框，需手動點擊「執行」或按 `Enter` 才會執行
+- **上下鍵**：在輸入框中按上下鍵可以瀏覽歷史指令
+- **Tab 鍵**：按 Tab 鍵可以自動補齊指令
+- **Tooltip**：滑鼠懸停在按鈕或「執行」按鈕上可查看詳細說明
+
+## 🔧 故障排除
+
+### 編譯失敗
+
+如果編譯時出現 `Unterminated string literal` 錯誤，請檢查 `src/app.tsx` 中是否有未結束的字串。
+
+### 插件未顯示
+
+1. 確認已執行 `cp src/manifest.json ./` 再執行 `make`
+2. 確認符號連結已正確建立
+3. 清除 Cockpit 快取並重新啟動服務
+4. 檢查瀏覽器控制台是否有錯誤訊息
+
+### 指令執行失敗
+
+- 確認 Cockpit 服務正常運行
+- 檢查使用者權限
+- 查看終端機視窗的錯誤訊息
+
+## 📝 注意事項
+
+- **不要修改** `src/index.html` 和 `src/index.tsx`，這些是應用程式的啟動器
+- **所有功能開發**請在 `src/app.tsx` 中進行
+- **每次編譯前**記得執行 `cp src/manifest.json ./`
+- `dist/` 目錄是編譯輸出，不需要提交到 git
+
+## 📄 授權
+
+本專案基於 Cockpit Starter Kit，遵循相同的授權條款。
+
+## 🤝 貢獻
+
+歡迎提交 Issue 或 Pull Request！
+
+## 📚 相關資源
+
+- [Cockpit 官方文件](https://cockpit-project.org/guide/latest/)
+- [PatternFly React 文件](https://www.patternfly.org/v4/)
+- [Cockpit Starter Kit](https://github.com/cockpit-project/starter-kit)
