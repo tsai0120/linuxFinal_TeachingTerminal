@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 // 告訴 TypeScript：這裡會有一個全域變數 cockpit（由 Cockpit 注入）
 declare const cockpit: any;
@@ -8,10 +11,6 @@ import {
   PageSection,
   Title,
   Button,
-  TextInput,
-  Toolbar,
-  ToolbarContent,
-  ToolbarItem,
   Card,
   CardBody,
   CardTitle,
@@ -867,18 +866,17 @@ const InstantTooltip: React.FC<{ text: string; children: React.ReactElement }> =
 // =========================================================================
 
 const TeachingTerminal: React.FC = () => {
-  const [output, setOutput] = useState(
-    "指令提示終端機已就緒，試試看輸入指令或點下面的按鈕：\n",
-  );
-  const [commandLine, setCommandLine] = useState("");
   const [currentInfo, setCurrentInfo] = useState<any>(null);
-  const outputBoxRef = useRef<HTMLPreElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [currentInput, setCurrentInput] = useState<string>("");
+  const [showInputTooltip, setShowInputTooltip] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const channelRef = useRef<any>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  
-  // Command history for up/down arrow navigation
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const inputTooltipRef = useRef<HTMLDivElement>(null);
+  const currentLineRef = useRef<string>("");
 
   // Dropdown state
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -905,16 +903,243 @@ const TeachingTerminal: React.FC = () => {
     };
   }, [isDropdownOpen]);
 
-  // Helper: Append output to terminal and autoscroll
-  const appendOutput = (line: string) => {
-    setOutput((prevOutput) => prevOutput + line.replace(/\r/g, "") + "\n");
-  };
-
+  // Initialize xterm.js and cockpit channel
   useEffect(() => {
-    if (outputBoxRef.current) {
-      outputBoxRef.current.scrollTop = outputBoxRef.current.scrollHeight;
+    if (!terminalRef.current) return;
+
+    // Variables for tooltip tracking (declared in outer scope)
+    let lastInputCheck = "";
+    let positionUpdateInterval: any = null;
+    let updateInputTooltip: (() => void) | null = null;
+
+    // Create xterm instance with better styling and visible cursor
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: "block", // Make cursor more visible
+      fontSize: 15,
+      fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace",
+      letterSpacing: 1,
+      lineHeight: 1.3,
+      disableStdin: false, // Enable input
+      theme: {
+        background: "#1e1e1e",
+        foreground: "#d4d4d4",
+        cursor: "#00ff00", // Bright green cursor for visibility
+        cursorAccent: "#1e1e1e",
+        selection: "#264f78",
+        selectionForeground: "#ffffff",
+        black: "#000000",
+        red: "#cd3131",
+        green: "#0dbc79",
+        yellow: "#e5e510",
+        blue: "#2472c8",
+        magenta: "#bc3fbc",
+        cyan: "#11a8cd",
+        white: "#e5e5e5",
+        brightBlack: "#666666",
+        brightRed: "#f14c4c",
+        brightGreen: "#23d18b",
+        brightYellow: "#f5f543",
+        brightBlue: "#3b8eea",
+        brightMagenta: "#d670d6",
+        brightCyan: "#29b8db",
+        brightWhite: "#ffffff",
+      } as any,
+      rows: 15,
+      cols: 100,
+      allowProposedApi: true, // Enable better color support
+      convertEol: true, // Convert EOL to CRLF
+      allowTransparency: false,
+      logLevel: "off", // Disable logging
+    } as any);
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(terminalRef.current);
+    
+    // Fit terminal to container
+    setTimeout(() => {
+      fitAddon.fit();
+    }, 100);
+
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    // Get cockpit object
+    const cockpitFromWindow = (window as any).cockpit;
+    const cockpitObj =
+      cockpitFromWindow ||
+      (typeof cockpit !== "undefined" ? (cockpit as any) : undefined);
+
+    if (cockpitObj && typeof cockpitObj.channel === "function") {
+      // Create a PTY channel for interactive shell with color support
+      const channel = cockpitObj.channel({
+        payload: "stream",
+        spawn: ["bash", "--login", "-i"], // Use interactive login shell to load .bashrc
+        pty: true,
+        environ: [
+          "TERM=xterm-256color",
+          "COLORTERM=truecolor",
+          "FORCE_COLOR=1",
+          "LS_COLORS=rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        ],
+      });
+
+      channelRef.current = channel;
+
+      // Receive data from shell and display in xterm
+      channel.addEventListener("message", (_event: any, data: string) => {
+        term.write(data);
+      });
+
+      channel.addEventListener("close", () => {
+        term.write("\r\n[連線已關閉]\r\n");
+      });
+
+      // Function to update tooltip based on current input
+      updateInputTooltip = () => {
+        try {
+          // Get current line from terminal buffer
+          const buffer = term.buffer.active;
+          const cursorY = buffer.cursorY;
+          const line = buffer.getLine(cursorY);
+          if (line) {
+            const lineText = line.translateToString(true);
+            const trimmed = lineText.trim();
+            
+            // Only update if input changed
+            if (trimmed !== lastInputCheck) {
+              lastInputCheck = trimmed;
+              
+              if (trimmed) {
+                const firstWord = trimmed.split(/\s+/)[0];
+                const info = commandInfo[firstWord];
+                if (info) {
+                  setCurrentInfo(info);
+                  setShowInputTooltip(true);
+                  currentLineRef.current = trimmed;
+                  
+                  // Calculate tooltip position - below the terminal
+                  if (terminalRef.current) {
+                    // Get terminal container dimensions (relative to CardBody)
+                    const terminalHeight = terminalRef.current.offsetHeight;
+                    // Position tooltip below the terminal (relative to CardBody)
+                    setTooltipPosition({
+                      top: terminalHeight + 8, // 8px below terminal
+                      left: 0, // Aligned with terminal left edge
+                    });
+                  }
+                } else {
+                  setShowInputTooltip(false);
+                  setCurrentInfo(null);
+                }
+              } else {
+                setShowInputTooltip(false);
+                setCurrentInfo(null);
+              }
+            } else if (trimmed && showInputTooltip) {
+              // Tooltip is already showing, no need to update position (it's fixed below terminal)
+              // Only update if terminal size might have changed (handled by resize handler)
+            }
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      };
+
+      // Send user input to shell and track input
+      term.onData((data: string) => {
+        // Update tooltip first for non-enter keys
+        if (data !== "\r" && data !== "\n") {
+          // Check input after terminal updates
+          if (updateInputTooltip) {
+            setTimeout(updateInputTooltip, 50);
+          }
+        }
+        
+        // Always send data to channel (this executes the command on Enter)
+        if (channel) {
+          try {
+            channel.send(data);
+          } catch (e) {
+            console.error("Error sending data to channel:", e);
+          }
+        }
+        
+        // Hide tooltip immediately when Enter is pressed
+        if (data === "\r" || data === "\n") {
+          // Enter pressed - hide tooltip immediately
+          setShowInputTooltip(false);
+          setCurrentInfo(null);
+          lastInputCheck = "";
+        }
+      });
+
+      // Also check on cursor movement
+      term.onCursorMove(() => {
+        if (updateInputTooltip) {
+          setTimeout(updateInputTooltip, 50);
+        }
+      });
+
+      // Handle terminal resize
+      term.onResize(({ cols, rows }) => {
+        if (channel) {
+          channel.control({ window: { rows, cols } });
+        }
+        // Update tooltip position when terminal resizes (if tooltip is showing)
+        setTimeout(() => {
+          if (showInputTooltip && terminalRef.current) {
+            const terminalHeight = terminalRef.current.offsetHeight;
+            setTooltipPosition({
+              top: terminalHeight + 8,
+              left: 0,
+            });
+          }
+        }, 100);
+      });
+
+      // Send initial size
+      channel.control({ window: { rows: term.rows, cols: term.cols } });
+      
+      // No need for periodic position updates since tooltip is fixed below terminal
+      // Position will be updated when input changes or terminal resizes
+    } else {
+      term.write("指令提示終端機已就緒（Demo 模式）\r\n");
+      term.write("請確認此頁面是從 Cockpit 介面中開啟。\r\n");
     }
-  }, [output]);
+
+    // Handle window resize
+    const handleResize = () => {
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit();
+      }
+      // Update tooltip position on resize
+      if (updateInputTooltip) {
+        setTimeout(updateInputTooltip, 100);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    
+    // Also update tooltip position when terminal scrolls
+    term.onScroll(() => {
+      if (updateInputTooltip) {
+        setTimeout(updateInputTooltip, 50);
+      }
+    });
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (channelRef.current) {
+        channelRef.current.close();
+      }
+      if (positionUpdateInterval) {
+        clearInterval(positionUpdateInterval);
+      }
+      term.dispose();
+    };
+  }, []);
 
   // Helper: Update info block based on command string
   const updateInfo = (cmd: string) => {
@@ -922,89 +1147,40 @@ const TeachingTerminal: React.FC = () => {
     setCurrentInfo(commandInfo[firstWord] || null);
   };
 
-  // Action: Select command from button (only populates input)
+  // Action: Select command from button - write to terminal (don't execute)
   const selectCommand = (template: string) => {
-    setCommandLine(template);
     updateInfo(template);
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  };
-
-  // Core Function: Execute command (true execution or demo)
-  const runCommand = (cmd: string) => {
-    const finalCmd = cmd.trim();
-    if (!finalCmd) return;
-
-    // Add to command history
-    if (finalCmd && (commandHistory.length === 0 || commandHistory[commandHistory.length - 1] !== finalCmd)) {
-      setCommandHistory((prev) => [...prev, finalCmd]);
-    }
-    setHistoryIndex(-1);
-
-    appendOutput("$ " + finalCmd);
-    updateInfo(finalCmd);
-    setCommandLine("");
-    // 優先從 window.cockpit 拿；如果沒有，再嘗試全域 cockpit
-    const cockpitFromWindow = (window as any).cockpit;
-    const cockpitObj =
-      cockpitFromWindow ||
-      (typeof cockpit !== "undefined" ? (cockpit as any) : undefined);
-
-    if (cockpitObj && typeof cockpitObj.spawn === "function") {
-      // 真正在 VM 裡跑指令
-      const process = cockpitObj.spawn(["bash", "-lc", finalCmd], { err: "out" });
+    // Write command to terminal but don't send Enter
+    if (xtermRef.current && channelRef.current) {
+      // Focus the terminal first
+      if (terminalRef.current) {
+        terminalRef.current.focus();
+        // Also focus the xterm instance
+        xtermRef.current.focus();
+      }
       
-      process.stream((data: string) => {
-        appendOutput(data);
-      });
-      
-      process.done(() => {
-        appendOutput(""); // 空一行比較好看
-      });
-      
-      process.fail((err: any) => {
-        // 检查是否是正常的非零退出码
-        if (err && typeof err === "object") {
-          // 如果有 exit_status 且不为 0，但不一定是错误
-          // 只有当有明确的错误消息时才显示错误
-          if (err.exit_status !== undefined && err.exit_status !== null) {
-            // 如果 exit_status 是 0，不应该到这里
-            // 如果有 message 且不为空，才显示错误
-            if (err.message && err.message.trim() !== "") {
-              appendOutput(`[錯誤] ${err.message}`);
-            } else if (err.problem && err.problem !== null) {
-              appendOutput(`[錯誤] ${err.problem}`);
+      // Send Ctrl+U to clear current line, then write the command
+      channelRef.current.send("\x15"); // Ctrl+U clears line in bash
+      // Small delay to ensure line is cleared
+      setTimeout(() => {
+        if (channelRef.current && xtermRef.current) {
+          channelRef.current.send(template);
+          currentLineRef.current = template;
+          setShowInputTooltip(true);
+          
+          // Force cursor to be visible
+          xtermRef.current.focus();
+          
+          // Update tooltip position after command is written
+          // The tooltip will be updated automatically by the onData handler
+          // Just ensure the terminal is focused and cursor is visible
+          setTimeout(() => {
+            if (xtermRef.current) {
+              xtermRef.current.focus();
             }
-            // 如果只有 exit_status 但没有错误消息，可能是命令正常退出但返回非零码
-            // 这种情况下不显示错误，因为输出已经在 stream 中显示了
-          } else {
-            // 没有 exit_status，可能是其他类型的错误
-            let msg = err.message || err;
-            if (typeof msg === "object" && msg !== null) {
-              msg = JSON.stringify(msg);
-            }
-            if (msg && msg.trim() !== "" && msg !== "{}") {
-              appendOutput(`[錯誤] ${msg}`);
-            }
-          }
-        } else {
-          // err 不是对象，直接显示
-          const msg = String(err || "");
-          if (msg.trim() !== "") {
-            appendOutput(`[錯誤] ${msg}`);
-          }
+          }, 150);
         }
-      });
-    } else {
-      // 只有在「真的沒有 cockpit 物件」時才會走到這裡
-      appendOutput(
-        "(demo) 無法取得 cockpit 物件，改用示範模式輸出指令內容。",
-      );
-      appendOutput(
-        "[錯誤] 這裡會顯示指令輸出的結果。請確認此頁面是從 Cockpit 介面中開啟，且外掛 index.html 有正確載入。",
-      );
-      appendOutput("");
+      }, 50);
     }
   };
   // Helper: Render danger label for inline display
@@ -1062,31 +1238,6 @@ const TeachingTerminal: React.FC = () => {
     );
   };
 
-  // Tab completion function
-  const handleTabCompletion = (currentInput: string): string => {
-    const words = currentInput.trim().split(/\s+/);
-    if (words.length === 0) return currentInput;
-    
-    const lastWord = words[words.length - 1];
-    const prefix = words.slice(0, -1).join(" ");
-    
-    // Get all available commands
-    const commands = Object.keys(commandInfo);
-    
-    // Find matching commands
-    const matches = commands.filter((cmd) => cmd.startsWith(lastWord));
-    
-    if (matches.length === 1) {
-      // Single match, complete it
-      return prefix ? `${prefix} ${matches[0]}` : matches[0];
-    } else if (matches.length > 1) {
-      // Multiple matches, show them in output
-      appendOutput(`\n可能的補齊選項：${matches.join(", ")}\n`);
-      return currentInput; // Don't change input
-    }
-    
-    return currentInput; // No matches
-  };
   // Filter commands based on selected category
   const filteredCommands = useMemo(() => {
     if (selectedCategory === "全部") {
@@ -1123,92 +1274,69 @@ const TeachingTerminal: React.FC = () => {
         className="pf-u-p-0"
         style={{ maxWidth: "unset", width: "100%", paddingLeft: "32px", marginTop: "16px" }}
       >
-        <Card className="pf-u-background-color-white">
+        <Card className="pf-u-background-color-white" style={{ position: "relative", overflow: "visible" }}>
           <CardTitle className="pf-u-font-weight-bold">
-            [ 教學終端機視窗 ] classuser@vm01:~
+            [ 互動式終端機 ] - 支援 sudo、nano、vim 等互動指令
           </CardTitle>
-          <CardBody className="pf-u-p-md">
-            {/* Output Area */}
-            <pre
-              ref={outputBoxRef}
+          <CardBody className="pf-u-p-md" style={{ position: "relative", overflow: "visible" }}>
+            {/* xterm.js Terminal */}
+            <div
+              ref={terminalRef}
+              tabIndex={0}
               style={{
-                background: "#000",
-                color: "#8ae234",
-                height: "260px",
-                overflowY: "auto",
-                padding: "10px",
-                lineHeight: "1.4",
+                height: "300px",
                 borderRadius: "4px",
-                fontFamily: "monospace",
+                overflow: "hidden",
+                position: "relative",
+                outline: "none",
               }}
-            >
-              {output}
-            </pre>
-            {/* Input Area */}
-            <Toolbar className="pf-u-mt-md pf-u-p-0">
-              <ToolbarContent className="pf-u-p-0">
-                <ToolbarItem>
-                  <span>$</span>
-                </ToolbarItem>
-                <ToolbarItem style={{ flexGrow: 1 }}>
-                  <TextInput
-                    ref={inputRef}
-                    value={commandLine}
-                    onChange={(_event, value) => {
-                      setCommandLine(value);
-                      updateInfo(value);
-                      setHistoryIndex(-1); // Reset history index when typing
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        runCommand(commandLine);
-                      } else if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        if (commandHistory.length > 0) {
-                          const newIndex = historyIndex === -1 
-                            ? commandHistory.length - 1 
-                            : Math.max(0, historyIndex - 1);
-                          setHistoryIndex(newIndex);
-                          setCommandLine(commandHistory[newIndex]);
-                          updateInfo(commandHistory[newIndex]);
-                        }
-                      } else if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        if (historyIndex >= 0) {
-                          const newIndex = historyIndex + 1;
-                          if (newIndex >= commandHistory.length) {
-                            setHistoryIndex(-1);
-                            setCommandLine("");
-                          } else {
-                            setHistoryIndex(newIndex);
-                            setCommandLine(commandHistory[newIndex]);
-                            updateInfo(commandHistory[newIndex]);
-                          }
-                        }
-                      } else if (e.key === "Tab") {
-                        e.preventDefault();
-                        const completed = handleTabCompletion(commandLine);
-                        setCommandLine(completed);
-                        updateInfo(completed);
-                      }
-                    }}
-                    placeholder="輸入指令，例如：ls -R /etc"
-                    style={{ fontFamily: "monospace" }}
-                    type="text"
-                  />
-                </ToolbarItem>
-                <ToolbarItem>
-                  <InstantTooltip text="小提示：你可以先看上方的「危險度」再決定要不要執行這個指令">
-                    <Button
-                      variant="primary"
-                      onClick={() => runCommand(commandLine)}
-                    >
-                      執行
-                    </Button>
-                  </InstantTooltip>
-                </ToolbarItem>
-              </ToolbarContent>
-            </Toolbar>
+              onClick={() => {
+                // Focus terminal when clicked
+                if (xtermRef.current) {
+                  xtermRef.current.focus();
+                }
+              }}
+            />
+            {/* Input Tooltip - shows below terminal */}
+            {showInputTooltip && currentInfo && (
+              <div
+                ref={inputTooltipRef}
+                style={{
+                  position: "absolute",
+                  top: `${tooltipPosition.top}px`,
+                  left: `${tooltipPosition.left}px`,
+                  background: "#2d2d2d",
+                  color: "#fff",
+                  padding: "10px 14px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  zIndex: 1000,
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                  border: `2px solid ${dangerStyles[currentInfo.danger as "low" | "medium" | "high"]?.border || "#4a9eff"}`,
+                  maxWidth: "100%",
+                  minWidth: "250px",
+                  width: "100%",
+                  wordWrap: "break-word",
+                  lineHeight: "1.5",
+                  pointerEvents: "none", // Don't block mouse events
+                }}
+              >
+                <div style={{ fontWeight: "bold", marginBottom: "6px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>{dangerStyles[currentInfo.danger as "low" | "medium" | "high"]?.icon}</span>
+                  <span>{dangerStyles[currentInfo.danger as "low" | "medium" | "high"]?.label}</span>
+                  <span style={{ color: "#999" }}>|</span>
+                  <span>{currentInfo.text}</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#bbb", marginTop: "4px" }}>
+                  小提示：你可以先看上方的「危險度」再決定要不要執行這個指令
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: "12px", color: "#666", marginTop: "8px" }}>
+              💡 這是真正的互動式終端機，支援 Tab 補齊、上下鍵歷史紀錄、sudo、nano、vim 等所有指令。
+              <br />
+              💡 點擊下方指令按鈕會將指令填入終端機，按 Enter 才會執行。
+            </p>
           </CardBody>
         </Card>
       </PageSection>
@@ -1232,8 +1360,8 @@ const TeachingTerminal: React.FC = () => {
               }}
             >
               <Title headingLevel="h3" size="md" style={{ margin: 0 }}>
-                常用指令：
-              </Title>
+                    常用指令：
+                  </Title>
               <div ref={dropdownRef} style={{ position: "relative", zIndex: 1001 }}>
                 <div
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -1249,8 +1377,8 @@ const TeachingTerminal: React.FC = () => {
                     minWidth: "150px",
                     position: "relative",
                   }}
-                >
-                  {selectedCategory}
+                      >
+                        {selectedCategory}
                   <span
                     style={{
                       position: "absolute",
@@ -1334,29 +1462,29 @@ const TeachingTerminal: React.FC = () => {
 
                 return (
                   <InstantTooltip key={cmd} text={tooltipTitle}>
-                    <Button
-                      style={
-                        info.danger === "low"
-                          ? {
-                              background: style.bg,
-                              color: style.fg,
-                              border: `1px solid ${style.border}`,
-                              marginRight: "8px",
-                              marginBottom: "8px",
-                            }
-                          : { marginRight: "8px", marginBottom: "8px" }
-                      }
-                      variant={
-                        info.danger === "high"
-                          ? "danger"
-                          : info.danger === "medium"
-                          ? "warning"
+                  <Button
+                    style={
+                      info.danger === "low"
+                        ? {
+                            background: style.bg,
+                            color: style.fg,
+                            border: `1px solid ${style.border}`,
+                            marginRight: "8px",
+                            marginBottom: "8px",
+                          }
+                        : { marginRight: "8px", marginBottom: "8px" }
+                    }
+                    variant={
+                      info.danger === "high"
+                        ? "danger"
+                        : info.danger === "medium"
+                        ? "warning"
                           : "secondary"
-                      }
-                      onClick={() => selectCommand(info.template)}
-                    >
-                      {cmd}
-                    </Button>
+                    }
+                    onClick={() => selectCommand(info.template)}
+                  >
+                    {cmd}
+                  </Button>
                   </InstantTooltip>
                 );
               })}

@@ -116,7 +116,7 @@ const commandInfo: Record<string, {
 使用 watch 模式可以自動重新編譯：
 
 ```bash
-make watch
+    make watch
 ```
 
 或使用 build.js：
@@ -132,7 +132,7 @@ make watch
 執行 ESLint 檢查：
 
 ```bash
-npm run eslint
+    npm run eslint
 ```
 
 自動修復可修復的問題：
